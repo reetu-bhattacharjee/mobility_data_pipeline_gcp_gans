@@ -67,8 +67,9 @@ The flights came from **196 different departure airports**, from Istanbul and Iz
 A pipeline you have to run by hand isn't really a pipeline. So I moved it to **Google Cloud Platform**:
 
 1. **Cloud SQL (MySQL 8.0)**: the same schema as my local database, now reachable by anyone in the company.
-2. **Cloud Run functions**: the weather and flight code, packaged as a serverless function. No server to maintain, and it costs nothing while idle.
-3. **Cloud Scheduler**: a cron job that calls the function once a day, so tomorrow's flights and the fresh forecast are in the database before the operations team starts work.
+2. **Two Cloud Run functions (Python 3.14, europe-west1)**: `weather` and `flights`, each packaged as its own serverless function. No server to maintain, it costs nothing while idle, and if the flight API has a bad day, the weather still gets collected.
+3. **Secret Manager**: the database password and API keys never appear in the code. Google hands them to the functions as environment variables at run time.
+4. **Cloud Scheduler**: two cron jobs (`0 0 * * *`) call the functions every night at 00:00, so tomorrow's flights and the fresh forecast are waiting in the database before anyone at Gans has had breakfast.
 
 Static data (cities and airports) is loaded once from the notebook. Dynamic data (weather and flights) refreshes itself daily.
 
@@ -80,10 +81,14 @@ Static data (cities and airports) is loaded once from the notebook. Dynamic data
 flowchart LR
     W[Wikipedia] -- web scraping --> NB[Python notebook]
     NB -- cities and population, once --> DB[(Cloud SQL<br/>MySQL 8.0)]
-    CS[Cloud Scheduler<br/>daily cron] -- HTTP GET --> CF[Cloud Run function<br/>main.py]
-    OW[OpenWeather API] --> CF
-    AD[AeroDataBox API<br/>via RapidAPI] --> CF
-    CF -- weather and flights, daily --> DB
+    CS[Cloud Scheduler<br/>daily at 00:00] -- HTTP GET --> WF[Cloud Run function<br/>weather]
+    CS -- HTTP GET --> FF[Cloud Run function<br/>flights]
+    SM[Secret Manager] -. password and API keys .-> WF
+    SM -. password and API keys .-> FF
+    OW[OpenWeather API] --> WF
+    AD[AeroDataBox API<br/>via RapidAPI] --> FF
+    WF -- weather, daily --> DB
+    FF -- airports and flights, daily --> DB
     DB --> A[Analysts and future<br/>demand-prediction model]
 ```
 
@@ -159,15 +164,15 @@ Primary keys, foreign keys and unique constraints let **the database itself refu
 - **Time zones.** The API returns times like `2026-10-02 06:15+02:00`, but MySQL `DATETIME` has no offset. I store local arrival time (what matters to a scooter on the street) and compute "tomorrow" in Berlin time, not UTC.
 - **Idempotency.** A daily job *will* run twice one day. `ON DUPLICATE KEY UPDATE`, `INSERT IGNORE` and unique keys mean a re-run updates rows or skips them, instead of duplicating them or crashing.
 - **Insertion order.** `flights` references `airports`, so a flight from Singapore can only be stored after Singapore's airport exists. The code writes parents before children: airports, then city–airport links, then flights.
-- **Debugging in the cloud is slow.** Every Cloud Function deployment takes minutes. Testing the function locally with `functions-framework` first, and reading the logs from the bottom up, saved me hours.
+- **The weather function that changed its mind.** The first time I deployed the weather function, it failed with code I knew was correct. A little later, without a single change, it simply started working. My best explanation: when a function is connected to Secret Manager, the permission to read the secrets takes a few minutes to become active, so the first run most likely started without its password. Lesson: in the cloud, "it doesn't work" sometimes means "not yet". Read the logs before rewriting the code.
 
 ---
 
 ## 🛠️ Technologies used
 
-- **Language:** Python 3, SQL (MySQL 8.0)
+- **Language:** Python 3.14 (Cloud Run runtime), SQL (MySQL 8.0)
 - **Libraries:** pandas, requests, BeautifulSoup4, SQLAlchemy, PyMySQL, lat-lon-parser, python-dotenv, functions-framework
-- **Cloud:** Google Cloud SQL, Google Cloud Run functions, Google Cloud Scheduler
+- **Cloud (europe-west1):** Google Cloud SQL, Google Cloud Run functions, Google Cloud Scheduler, Google Secret Manager
 - **Tools:** Jupyter Notebook, MySQL Workbench, RapidAPI
 
 ---
@@ -186,9 +191,13 @@ mobility_data_pipeline_gcp_gans/
 ├── sql/
 │   ├── 01_create_database_local.sql   # schema for local MySQL (drops and recreates)
 │   └── 02_create_database_cloud.sql   # schema for Cloud SQL (never drops data)
-└── cloud_function/
-    ├── main.py                        # daily weather and flight job (entry point: update_weather_and_flights)
-    └── requirements.txt               # libraries installed by Cloud Functions
+└── cloud_functions/
+    ├── weather/
+    │   ├── main.py                    # daily forecast job (entry point: weather)
+    │   └── requirements.txt           # libraries installed by Cloud Run
+    └── flights/
+        ├── main.py                    # daily airports + tomorrow's arrivals job (entry point: flights)
+        └── requirements.txt
 ```
 
 ---
@@ -196,14 +205,19 @@ mobility_data_pipeline_gcp_gans/
 ## 🔗 How to reproduce it
 
 1. **Get the keys:** a free [OpenWeather](https://home.openweathermap.org/users/sign_up) API key and an [AeroDataBox](https://rapidapi.com/aedbx-aedbx/api/aerodatabox) key on RapidAPI.
-2. **Secrets:** copy `.env.example` to a `.env` file *outside* the repository, fill it in, and point `ENV_PATH` in the notebook at it.
+2. **Secrets:** copy `.env.example` to a file named `.env` in the repository folder or any folder above it, and fill it in. The notebooks find it automatically, and `.gitignore` keeps it out of git.
 3. **Local run:** `python -m pip install -r requirements.txt`, run `sql/01_create_database_local.sql` in MySQL Workbench, then run `notebooks/01_local_pipeline.ipynb` top to bottom.
 4. **Cloud database:** create a Cloud SQL MySQL 8.0 instance (Enterprise, Sandbox, 1 vCPU, single zone), connect MySQL Workbench to its public IP and run `sql/02_create_database_cloud.sql`. Then run `notebooks/02_cloud_pipeline.ipynb` once to load the static tables.
-5. **Cloud Function:** create a Python Cloud Run function connected to the Cloud SQL instance. Paste `cloud_function/main.py` and its `requirements.txt`, set the entry point to `update_weather_and_flights`, and add the environment variables `DB_PASSWORD`, `DB_HOST`, `OPENWEATHER_API_KEY` and `AERODATABOX_API_KEY`.
-6. **Schedule:** in Cloud Scheduler, create a daily job (HTTP GET to the function URL, Europe/Berlin time zone).
-7. **Clean up afterwards:** delete the Scheduler job, the function and the SQL instance, then shut down the project, so no free credits are wasted.
+5. **Secrets:** in Secret Manager, create the secrets `password`, `openWeatherApi` and `AeroDATAboxAPI`.
+6. **Cloud Functions:** create two Python 3.14 Cloud Run functions in europe-west1, both connected to the Cloud SQL instance:
+   - `weather`: paste `cloud_functions/weather/main.py` and its `requirements.txt`, entry point `weather`
+   - `flights`: paste `cloud_functions/flights/main.py` and its `requirements.txt`, entry point `flights`
 
-> ⚠️ For simplicity, the course set-up opens Cloud SQL to every IP address (`0.0.0.0/0`). That's fine for public weather and flight data, but in production you'd restrict networks, use the Cloud SQL connector and keep secrets in Secret Manager.
+   In each function, expose the secrets as environment variables with the same names, and add a plain environment variable `cloud_sql_host` holding the instance's public IP.
+7. **Schedule:** in Cloud Scheduler, create one job per function with frequency `0 0 * * *` (every day at 00:00), Europe/Berlin time zone, target HTTP GET to the function URL.
+8. **Clean up afterwards:** delete the Scheduler job, the function and the SQL instance, then shut down the project, so no free credits are wasted.
+
+> ⚠️ For simplicity, the course set-up opens Cloud SQL to every IP address (`0.0.0.0/0`). That's fine for public weather and flight data, but in production you'd restrict the allowed networks and connect through the Cloud SQL connector or a private IP. (The secrets, at least, already live in Secret Manager.)
 
 ---
 
@@ -213,7 +227,7 @@ mobility_data_pipeline_gcp_gans/
 - **Forecast accuracy:** compare stored forecasts with what happened, to learn how far ahead the weather data can be trusted.
 - **More cities:** extend the scraper beyond Germany, where Wikipedia infoboxes are less consistent.
 - **Richer features:** public holidays, events and the hilliness of each district, three more known drivers of scooter asymmetry.
-- **Production hardening:** retries and alerting on failed runs, Secret Manager, and a private-IP database connection.
+- **Production hardening:** retries and alerting on failed runs, and a private-IP database connection.
 
 ---
 
