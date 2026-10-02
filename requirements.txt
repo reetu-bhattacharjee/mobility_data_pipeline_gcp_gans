@@ -1,0 +1,8 @@
+# Libraries for the two notebooks (python -m pip install -r requirements.txt)
+pandas
+requests
+beautifulsoup4
+lat-lon-parser
+python-dotenv
+SQLAlchemy
+PyMySQL
