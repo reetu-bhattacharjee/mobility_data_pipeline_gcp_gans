@@ -1,0 +1,5 @@
+arrival_date,collected_by,api_reported_arrivals,flights_stored_after_cleaning,note
+2026-09-30,01_local_pipeline (run 2026-09-29),935,933,duplicates removed before storing
+2026-10-02,02_cloud_pipeline (run 2026-10-01),986,982,duplicates removed before storing
+2026-10-03,01_local_pipeline (run 2026-10-02),852,852,
+2026-10-03,Cloud Run function flights (scheduled 2026-10-02 00:00),,847,from the Cloud Run log; separate run of the same day

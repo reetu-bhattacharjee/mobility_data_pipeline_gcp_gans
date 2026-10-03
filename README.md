@@ -55,10 +55,19 @@ Then, for each airport, the pipeline downloads **tomorrow's scheduled passenger 
 | Hamburg (EDDH) | 53 | 131 | 184 |
 | **All** | **329** | **657** | **982 after de-duplication** |
 
-Two things stood out to me straight away:
+Two things stood out to me straight away, and three days of data (30 Sep, 2 Oct and 3 Oct) confirmed that neither was a one-day fluke:
 
-- **Munich receives ~50% of all arrivals but has the smallest population of the three.** Per resident, Munich gets roughly 4× the air traffic of Berlin (≈330 vs ≈85 arrivals per million inhabitants). If tourists are the target, Munich's airport rail links and centre may deserve a bigger share of the fleet than its population suggests.
-- **Two out of every three flights land after midday.** Airport-driven demand builds through the afternoon and evening, so a rebalancing truck run in the late morning fits that pattern better than one at dawn.
+- **Munich receives about half of all arrivals but has the smallest population of the three.** Per resident, Munich gets roughly 4× the air traffic of Berlin (on average ≈318 vs ≈76 daily arrivals per million inhabitants). If tourists are the target, Munich's airport rail links and centre may deserve a bigger share of the fleet than its population suggests.
+- **Two out of every three flights land after midday** (63–67% on each of the three days). Airport-driven demand builds through the afternoon and evening, so a rebalancing truck run in the late morning fits that pattern better than one at dawn.
+
+![Arrivals per city per day](images/chart_arrivals_per_city.png)
+*Munich leads on every collected day; Hamburg, despite having more residents than Munich, gets about a third of its flights.*
+
+![Arrivals per million residents](images/chart_arrivals_per_resident.png)
+*Normalised by population, the gap becomes dramatic: Munich is an air-travel magnet far beyond its size.*
+
+![Morning vs afternoon arrivals](images/chart_morning_vs_afternoon.png)
+*The afternoon wave is stable from day to day, which makes it something an operations team can actually plan around.*
 
 The flights came from **196 different departure airports**, from Istanbul and Izmir to Bangkok and Singapore. Each one was added to the `airports` table so every flight can be traced to its origin.
 
@@ -77,70 +86,11 @@ Static data (cities and airports) is loaded once from the notebook. Dynamic data
 
 ## 🏗️ Architecture
 
-```mermaid
-flowchart LR
-    W[Wikipedia] -- web scraping --> NB[Python notebook]
-    NB -- cities and population, once --> DB[(Cloud SQL<br/>MySQL 8.0)]
-    CS[Cloud Scheduler<br/>daily at 00:00] -- HTTP GET --> WF[Cloud Run function<br/>weather]
-    CS -- HTTP GET --> FF[Cloud Run function<br/>flights]
-    SM[Secret Manager] -. password and API keys .-> WF
-    SM -. password and API keys .-> FF
-    OW[OpenWeather API] --> WF
-    AD[AeroDataBox API<br/>via RapidAPI] --> FF
-    WF -- weather, daily --> DB
-    FF -- airports and flights, daily --> DB
-    DB --> A[Analysts and future<br/>demand-prediction model]
-```
+![How the Gans pipeline runs](images/architecture.png)
 
 ## 🗄️ Data model
 
-```mermaid
-erDiagram
-    cities ||--o{ population : "has, per date"
-    cities ||--o{ weather : "has forecasts"
-    cities ||--o{ city_airports : "served by"
-    airports ||--o{ city_airports : "serves"
-    airports ||--o{ flights : "arrival_icao"
-    airports ||--o{ flights : "departure_icao"
-
-    cities {
-        int city_id PK
-        varchar city UK
-        varchar country
-        float latitude
-        float longitude
-    }
-    population {
-        int city_id PK, FK
-        date timestamp_population PK
-        int population
-    }
-    weather {
-        int weather_entry_id PK
-        int city_id FK
-        datetime forecast_time
-        float temperature
-        varchar forecast
-        float rain_in_last_3h
-        float wind_speed
-        datetime data_retrieved_at
-    }
-    airports {
-        varchar airport_icao PK
-        varchar airport_name
-    }
-    city_airports {
-        int city_id PK, FK
-        varchar airport_icao PK, FK
-    }
-    flights {
-        int flight_id PK
-        varchar flight_num
-        varchar departure_icao FK
-        varchar arrival_icao FK
-        datetime arrival_time
-    }
-```
+![The Gans database: six connected tables](images/data_model.png)
 
 Primary keys, foreign keys and unique constraints let **the database itself refuse bad data**. A flight can't point to an unknown airport, and running the job twice can't store the same flight twice (`UNIQUE (flight_num, departure_icao, arrival_icao, arrival_time)`).
 
@@ -185,6 +135,11 @@ mobility_data_pipeline_gcp_gans/
 ├── requirements.txt                   # libraries for the notebooks
 ├── .env.example                       # names of the secrets needed (no real values)
 ├── .gitignore                         # keeps .env and clutter out of git
+├── data/                              # small, real outputs of the pipeline (safe to share)
+│   ├── arrivals_by_airport.csv        # arrivals per airport and half-day, 3 collection days
+│   ├── pipeline_runs.csv              # each run: API-reported vs stored flights
+│   └── city_population.csv            # scraped from Wikipedia on 30 Sep 2026
+├── images/                            # charts used in this README
 ├── notebooks/
 │   ├── 01_local_pipeline.ipynb        # Phase 1: full pipeline into local MySQL
 │   └── 02_cloud_pipeline.ipynb        # Phase 2: same pipeline into Google Cloud SQL

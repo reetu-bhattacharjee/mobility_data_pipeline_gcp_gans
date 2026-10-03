@@ -1,0 +1,19 @@
+arrival_date,collected_by,city,airport_icao,time_window,api_reported_arrivals
+2026-09-30,01_local_pipeline (run 2026-09-29),Berlin,EDDB,00:00-11:59,89
+2026-09-30,01_local_pipeline (run 2026-09-29),Berlin,EDDB,12:00-23:59,192
+2026-09-30,01_local_pipeline (run 2026-09-29),Hamburg,EDDH,00:00-11:59,46
+2026-09-30,01_local_pipeline (run 2026-09-29),Hamburg,EDDH,12:00-23:59,130
+2026-09-30,01_local_pipeline (run 2026-09-29),Munich,EDDM,00:00-11:59,179
+2026-09-30,01_local_pipeline (run 2026-09-29),Munich,EDDM,12:00-23:59,299
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Berlin,EDDB,00:00-11:59,95
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Berlin,EDDB,12:00-23:59,208
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Hamburg,EDDH,00:00-11:59,53
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Hamburg,EDDH,12:00-23:59,131
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Munich,EDDM,00:00-11:59,181
+2026-10-02,02_cloud_pipeline (run 2026-10-01),Munich,EDDM,12:00-23:59,318
+2026-10-03,01_local_pipeline (run 2026-10-02),Berlin,EDDB,00:00-11:59,82
+2026-10-03,01_local_pipeline (run 2026-10-02),Berlin,EDDB,12:00-23:59,155
+2026-10-03,01_local_pipeline (run 2026-10-02),Hamburg,EDDH,00:00-11:59,47
+2026-10-03,01_local_pipeline (run 2026-10-02),Hamburg,EDDH,12:00-23:59,108
+2026-10-03,01_local_pipeline (run 2026-10-02),Munich,EDDM,00:00-11:59,184
+2026-10-03,01_local_pipeline (run 2026-10-02),Munich,EDDM,12:00-23:59,276
